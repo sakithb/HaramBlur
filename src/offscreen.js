@@ -27,8 +27,8 @@ const handleImageDetection = (request, sender, sendResponse) => {
     queue.add(
         request.image,
         (resultObj) => {
-            const { decision, scores } = resultObj;
-            sendResponse({ version, result: decision, scores });
+            const { decision, scores, faces } = resultObj;
+            sendResponse({ version, result: decision, scores, faces });
         },
         (error) => {
             sendResponse({ version, type: "error", message: error });
@@ -91,11 +91,11 @@ const runDetection = async (img, isVideo = false) => {
 
     if (nsfwFlag) {
         detector.human.tf.dispose(tensor);
-        return { decision: "nsfw", scores: nsfwDetections };
+        return { decision: "nsfw", scores: nsfwDetections, faces: [] };
     }
     if (!settings.shouldDetectGender()) {
         detector.human.tf.dispose(tensor);
-        return { decision: false, scores: nsfwDetections };
+        return { decision: false, scores: nsfwDetections, faces: [] };
     }
     const predictions = await detector.humanModelClassify(tensor);
     // console.log("offscreen human result", predictions);
@@ -107,7 +107,8 @@ const runDetection = async (img, isVideo = false) => {
     );
 
     const decision = genderFlag ? "face" : false;
-    return { decision, scores: nsfwDetections };
+    const faces = predictions?.face ?? [];
+    return { decision, scores: nsfwDetections, faces };
 };
 
 const init = async () => {

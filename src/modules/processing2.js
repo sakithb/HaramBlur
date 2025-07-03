@@ -43,7 +43,7 @@ const debugLog = (label, node, extra = "") => {
     );
 };
 
-const processImage = (node, STATUSES) => {
+const processImage = (node, STATUSES, opts = {}) => {
     try {
         // no log needed here
         node.dataset.HBstatus = STATUSES.PROCESSING;
@@ -62,7 +62,7 @@ const processImage = (node, STATUSES) => {
                 },
             },
             (response) => {
-                const { version, result, type, scores } = response;
+                const { version, result, type, scores, faces } = response;
 
                 if (version !== node.HBver) {
                     debugLog("STALE", node, `ver=${version}`);
@@ -107,6 +107,28 @@ const processImage = (node, STATUSES) => {
                     node.setAttribute(
                         "data--h-bscores",
                         JSON.stringify(scores.slice(0, 3))
+                    );
+                }
+
+                if (faces && faces.length) {
+                    // store simplified face data for debugging
+                    const faceData = faces.slice(0, 3).map((f) => {
+                        return {
+                            confidence: Number(
+                                (f?.score ?? f?.confidence ?? 0).toFixed(2)
+                            ),
+                            gender: f?.gender,
+                            gScore: Number(
+                                (f?.genderScore ?? f?.genderScore ?? 0).toFixed(
+                                    2
+                                )
+                            ),
+                            age: f?.age ? Math.round(f.age) : undefined,
+                        };
+                    });
+                    node.setAttribute(
+                        "data--h-bfaces",
+                        JSON.stringify(faceData)
                     );
                 }
             }

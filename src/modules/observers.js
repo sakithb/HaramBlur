@@ -15,6 +15,9 @@ import { STATUSES } from "../constants.js";
 let mutationObserver, _settings;
 let videosInProcess = [];
 
+// hi-res second-pass observer
+let hiResObserver = null;
+
 const startObserving = () => {
     if (!mutationObserver) initMutationObserver();
 
@@ -143,7 +146,34 @@ function observeNode(node, srcAttribute) {
         // remove the HBstatus if the node has no src attribute
         delete node.dataset?.HBstatus;
     }
+
+    // observe image for hi-res second pass
+    if (node.tagName === "IMG") {
+        initHiResObserver();
+        hiResObserver.observe(node);
+    }
 }
+
+const initHiResObserver = () => {
+    if (hiResObserver) return;
+    hiResObserver = new IntersectionObserver(
+        (entries) => {
+            entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    // avoid repeated hi-res passes
+                    if (!img.dataset.HBhiResDone) {
+                        img.dataset.HBhiResDone = 1;
+                        // run a hi-res second pass focusing on faces/gender
+                        processImage(img, STATUSES, { hiRes: true });
+                    }
+                    hiResObserver.unobserve(img);
+                }
+            });
+        },
+        { rootMargin: "0px", threshold: 0.3 }
+    );
+};
 
 export {
     attachObserversListener,

@@ -345,42 +345,58 @@ const containsNsfw = (nsfwDetections, strictness) => {
 };
 
 const genderPredicate = (gender, score, detectMale, detectFemale) => {
-    const mPredicate =
-        (gender === "male" && score > 0.5) ||
-        (gender === "female" && score < 0.1);
+    // First, trust the explicit label if it matches requested genders
+    if (detectMale && gender === "male") return true;
+    if (detectFemale && gender === "female") return true;
 
-    const fePredicate = gender === "female" && score > 0.5;
+    // Fall-back to score heuristics when label is ambiguous
+    if (gender === "unknown") return false;
 
-    if (detectMale && detectFemale) return mPredicate || fePredicate;
+    // In Human, genderScore ~ probability of being female (empirical)
+    // Use softer band around 0.5 to decide.
+    const femaleProb = score;
+    const maleProb = 1 - femaleProb;
 
-    if (detectMale && !detectFemale) {
-        return mPredicate;
-    }
-    if (!detectMale && detectFemale) {
-        return fePredicate;
-    }
+    if (detectMale && maleProb >= 0.55) return true;
+    if (detectFemale && femaleProb >= 0.55) return true;
 
     return false;
 };
 
 const containsGenderFace = (detections, detectMale, detectFemale) => {
-    if (!detections?.face?.length) {
-        return false;
-    }
+    if (!detections?.face?.length) return false;
 
     const faces = detections.face;
-    if (detectMale || detectFemale)
+
+    // If user asked to blur *both* sexes, accept any confident adult face (>0.6)
+    if (detectMale && detectFemale)
         return faces.some(
             (face) =>
-                face.age > 16 &&
-                genderPredicate(
-                    face.gender,
-                    face.genderScore,
-                    detectMale,
-                    detectFemale
-                )
+                face.age > 16 && (face.score ?? face.confidence ?? 0) > 0.6
         );
-    else return false;
+
+    const minAge = detectFemale && !detectMale ? 8 : 16;
+
+    return faces.some((face) => {
+        if (face.age <= minAge) return false;
+        const conf = face.score ?? face.confidence ?? 0;
+
+        // Special handling when only females should be blurred
+        if (detectFemale && !detectMale) {
+            // 1. Any unknown-gender adult with reasonably confident face detection
+            if (face.gender === "unknown" && conf > 0.6) return true;
+
+            // 2. Faces labelled male but with some female probability (>0.1)
+            if (face.gender === "male" && face.genderScore >= 0.1) return true;
+        }
+
+        return genderPredicate(
+            face.gender,
+            face.genderScore,
+            detectMale,
+            detectFemale
+        );
+    });
 };
 // export the human variable and the HUMAN_CONFIG object
 export { getNsfwClasses, containsNsfw, containsGenderFace, Detector };
