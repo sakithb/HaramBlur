@@ -15,6 +15,8 @@ const FRAME_RATE = 1000 / 25; // 25 fps
 const POSITIVE_THRESHOLD = 1; //at 25 fps, this is 0.04 seconds of consecutive positive detections
 // threshold for number of consecutive frames that need to be negative for the image to be considered negative
 const NEGATIVE_THRESHOLD = 3; //at 25 fps, this is 0.12 seconds of consecutive negative detections
+// versioning approach supersedes fixed timers. Small fallback delay is still possible but not required.
+const SRC_STABLE_TIMEOUT = 0;
 /**
  * Object containing the possible results of image processing.
  * @typedef {Object} RESULTS
@@ -33,12 +35,26 @@ const RESULTS = {
 let activeFrame = false;
 let canv, ctx;
 
+const DEBUG = true;
+const debugLog = (label, node, extra = "") => {
+    if (!DEBUG) return;
+    console.log(
+        `[HB] ${label} src=${node?.src?.slice(0, 80)} t=${performance.now().toFixed(0)} ${extra}`
+    );
+};
+
 const processImage = (node, STATUSES) => {
     try {
+        // no log needed here
         node.dataset.HBstatus = STATUSES.PROCESSING;
+        // increment and tag version for this detection
+        node.HBver = (node.HBver || 0) + 1;
+        const myVer = node.HBver;
+
         chrome.runtime.sendMessage(
             {
                 type: "imageDetection",
+                version: myVer,
                 image: {
                     src: node.src,
                     width: node.width || node.naturalWidth,
@@ -46,27 +62,52 @@ const processImage = (node, STATUSES) => {
                 },
             },
             (response) => {
-                // console.log("HB== handleElementProcessing", response, node)
-                removeBlurryStart(node);
-                if (response.type === "error") {
+                const { version, result, type, scores } = response;
+
+                if (version !== node.HBver) {
+                    debugLog("STALE", node, `ver=${version}`);
+                    return; // ignore stale results
+                }
+
+                if (type === "error") {
                     console.warn("HB==Error while processing image", response);
                     node.dataset.HBstatus = STATUSES.ERROR;
                     return;
                 }
-                if (response === "face" || response === "nsfw") {
-                    node.dataset.HBstatus = STATUSES.PROCESSED;
+
+                const isUnsafe = result === "face" || result === "nsfw";
+
+                if (isUnsafe) {
+                    // Cancel any pending safe-unblur timer
+                    if (node.HBunblurTimeout) {
+                        clearTimeout(node.HBunblurTimeout);
+                        node.HBunblurTimeout = null;
+                    }
+                    debugLog("UNSAFE", node);
+                    debugLog("Marked UNSAFE, adding hb-blur", node.src);
                     node.classList.add("hb-blur");
-                    node.dataset.HBresult = response;
-                } else if (response == false) {
-                    node.dataset.HBstatus = STATUSES.PROCESSED;
-                    node.classList.remove("hb-blur");
-                    delete node.dataset.HBresult;
+                    node.dataset.HBresult = result;
+                    removeBlurryStart(node);
                 } else {
-                    console.warn(
-                        "HB==Unknown response from processing image",
-                        response
+                    // safe result for current src
+                    if (
+                        !node.classList.contains("hb-blur") &&
+                        node.dataset.HBresult !== "nsfw" &&
+                        node.dataset.HBresult !== "face"
+                    ) {
+                        node.classList.remove("hb-blur");
+                        delete node.dataset.HBresult;
+                        removeBlurryStart(node);
+                        debugLog("UNBLUR", node);
+                    }
+                }
+
+                if (scores) {
+                    // store top class scores as JSON string (trimmed) for developer inspection
+                    node.setAttribute(
+                        "data--h-bscores",
+                        JSON.stringify(scores.slice(0, 3))
                     );
-                    node.dataset.HBstatus = STATUSES.ERROR;
                 }
             }
         );
@@ -215,7 +256,7 @@ const processVideo = async (node) => {
             canv.height = newHeight;
         }
 
-        removeBlurryStart(node);
+        // Keep the temporary blur until we have enough evidence to unblur/blur permanently.
 
         // start the video detection loop but don't block the main thread
         requestIdleCB(() => {
@@ -265,9 +306,18 @@ const processVideoDetections = (result, video) => {
     }
 
     if (shouldBlur !== null) {
-        shouldBlur
-            ? video.classList.add("hb-blur")
-            : video.classList.remove("hb-blur");
+        if (shouldBlur) {
+            // Add permanent blur first
+            video.classList.add("hb-blur");
+            // Then remove the temporary blur if it's still there
+            if (video.classList.contains("hb-blur-temp"))
+                removeBlurryStart(video);
+        } else {
+            // Safe content – remove temp blur first
+            if (video.classList.contains("hb-blur-temp"))
+                removeBlurryStart(video);
+            video.classList.remove("hb-blur");
+        }
     }
 };
 export { processImage, processVideo };

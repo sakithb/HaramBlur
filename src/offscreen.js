@@ -23,14 +23,15 @@ const loadModels = async () => {
 };
 
 const handleImageDetection = (request, sender, sendResponse) => {
+    const { version } = request;
     queue.add(
         request.image,
-        (result) => {
-            sendResponse(result);
+        (resultObj) => {
+            const { decision, scores } = resultObj;
+            sendResponse({ version, result: decision, scores });
         },
         (error) => {
-            error.type = "error";
-            sendResponse(error);
+            sendResponse({ version, type: "error", message: error });
         }
     );
 };
@@ -82,30 +83,31 @@ const runDetection = async (img, isVideo = false) => {
     if (!settings?.shouldDetect() || !img) return false;
     const tensor = detector.human.tf.browser.fromPixels(img);
     // console.log("tensors count", human.tf.memory().numTensors);
-    const nsfwResult = await detector.nsfwModelClassify(tensor);
-    // console.log("offscreen nsfw result", nsfwResult);
-    const strictness = settings.getStrictness() * (isVideo ? 0.75 : 1); // makes detection less strict for videos (to reduce false positives)
+    const nsfwDetections = await detector.nsfwModelClassify(tensor);
+    const strictness = settings.getStrictness() * (isVideo ? 0.75 : 1);
     activeFrame = false;
-    if (containsNsfw(nsfwResult, strictness)) {
+
+    const nsfwFlag = containsNsfw(nsfwDetections, strictness);
+
+    if (nsfwFlag) {
         detector.human.tf.dispose(tensor);
-        return "nsfw";
+        return { decision: "nsfw", scores: nsfwDetections };
     }
     if (!settings.shouldDetectGender()) {
         detector.human.tf.dispose(tensor);
-        return false; // no need to run gender detection if it's not enabled
+        return { decision: false, scores: nsfwDetections };
     }
     const predictions = await detector.humanModelClassify(tensor);
     // console.log("offscreen human result", predictions);
     detector.human.tf.dispose(tensor);
-    if (
-        containsGenderFace(
-            predictions,
-            settings.shouldDetectMale(),
-            settings.shouldDetectFemale()
-        )
-    )
-        return "face";
-    return false;
+    const genderFlag = containsGenderFace(
+        predictions,
+        settings.shouldDetectMale(),
+        settings.shouldDetectFemale()
+    );
+
+    const decision = genderFlag ? "face" : false;
+    return { decision, scores: nsfwDetections };
 };
 
 const init = async () => {

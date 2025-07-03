@@ -21,8 +21,8 @@ const HUMAN_CONFIG = {
         emotion: { enabled: false },
         detector: {
             modelPath: "blazeface.json",
-            maxDetected: 2,
-            minConfidence: 0.25,
+            maxDetected: 4,
+            minConfidence: 0.15,
         },
         description: {
             enabled: true,
@@ -65,7 +65,8 @@ const getNsfwClasses = (factor = 0) => {
         1: {
             className: "Hentai",
             nsfw: true,
-            thresh: 0.5 + (1 - factor) * 0.5, // decrease the factor to make it less strict
+            // stricter: minimum 0.6 (when strictness=1) up to 1.0
+            thresh: 0.6 + (1 - factor) * 0.4,
         },
         2: {
             className: "Neutral",
@@ -75,12 +76,14 @@ const getNsfwClasses = (factor = 0) => {
         3: {
             className: "Porn",
             nsfw: true,
-            thresh: 0.1 + (1 - factor) * 0.4, // decrease the factor to make it less strict
+            // stricter: 0.25–0.5 based on strictness
+            thresh: 0.25 + (1 - factor) * 0.25,
         },
         4: {
             className: "Sexy",
             nsfw: true,
-            thresh: 0.1 + (1 - factor) * 0.4, // decrease the factor to make it less strict
+            // stricter: 0.5–0.65 based on strictness
+            thresh: 0.5 + (1 - factor) * 0.15,
         },
     };
 };
@@ -306,32 +309,47 @@ class Detector {
 
 const containsNsfw = (nsfwDetections, strictness) => {
     if (!nsfwDetections?.length) return false;
-    let highestNsfwDelta = 0;
-    let highestSfwDelta = 0;
 
+    // consider Porn (3), Hentai (1) and Sexy (4) as NSFW, with sexy having stricter threshold above
+    const RELEVANT_IDS = new Set([1, 3, 4]);
     const nsfwClasses = getNsfwClasses(strictness);
+
+    const neutral = nsfwDetections.find((d) => d.id === 2); // Neutral
+    const drawing = nsfwDetections.find((d) => d.id === 0); // Drawing
+
+    let highestRelevantDelta = 0;
+
     nsfwDetections.forEach((det) => {
-        if (nsfwClasses?.[det.id].nsfw) {
-            highestNsfwDelta = Math.max(
-                highestNsfwDelta,
-                det.probability - nsfwClasses[det.id].thresh
+        if (!RELEVANT_IDS.has(det.id)) return;
+
+        const delta = det.probability - nsfwClasses[det.id].thresh;
+
+        if (det.id === 4) {
+            // Sexy: must beat Neutral/Drawing by margin to avoid FP
+            const sfwMax = Math.max(
+                neutral ? neutral.probability : 0,
+                drawing ? drawing.probability : 0
             );
+            if (delta > 0 && det.probability - sfwMax >= 0.4) {
+                highestRelevantDelta = Math.max(highestRelevantDelta, delta);
+            }
         } else {
-            highestSfwDelta = Math.max(
-                highestSfwDelta,
-                det.probability - nsfwClasses[det.id].thresh
-            );
+            // Porn or Hentai
+            if (delta > 0) {
+                highestRelevantDelta = Math.max(highestRelevantDelta, delta);
+            }
         }
     });
-    return highestNsfwDelta > highestSfwDelta;
+
+    return highestRelevantDelta > 0;
 };
 
 const genderPredicate = (gender, score, detectMale, detectFemale) => {
     const mPredicate =
-        (gender === "male" && score > 0.3) ||
-        (gender === "female" && score < 0.2);
+        (gender === "male" && score > 0.5) ||
+        (gender === "female" && score < 0.1);
 
-    const fePredicate = gender === "female" && score > 0.25;
+    const fePredicate = gender === "female" && score > 0.5;
 
     if (detectMale && detectFemale) return mPredicate || fePredicate;
 
@@ -354,7 +372,7 @@ const containsGenderFace = (detections, detectMale, detectFemale) => {
     if (detectMale || detectFemale)
         return faces.some(
             (face) =>
-                face.age > 20 &&
+                face.age > 16 &&
                 genderPredicate(
                     face.gender,
                     face.genderScore,

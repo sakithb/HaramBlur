@@ -62,7 +62,11 @@ const setStyle = ({ detail: settings }) => {
 
     hbStyleSheet.innerHTML += `
 	.hb-blur-temp { 
-		animation: hb-blur-temp ${BLURRY_START_MODE_TIMEOUT}ms ease-in-out forwards !important;
+		filter: blur(${_settings.getBlurAmount()}px) ${
+            _settings.isGray() ? "grayscale(100%)" : ""
+        } !important;
+		transition: filter 0.1s ease !important;
+		opacity: unset !important;
 	}
 
 	#hb-in-canvas {
@@ -70,20 +74,30 @@ const setStyle = ({ detail: settings }) => {
 		visibility: hidden !important;
 	}
 
-	@keyframes hb-blur-temp {
-		0% { filter: blur(${_settings.getBlurAmount()}px) ${
+    /* Visual indicators for blur reasons */
+    img.hb-blur[data--h-bresult="nsfw"],
+    video.hb-blur[data--h-bresult="nsfw"] {
+        filter: blur(${_settings.getBlurAmount()}px) ${
             _settings.isGray() ? "grayscale(100%)" : ""
-        }; }
-		95% { filter: blur(${_settings.getBlurAmount()}px) ${
+        } drop-shadow(0 0 0 rgba(255,0,0,0.95)) !important;
+    }
+
+    img.hb-blur[data--h-bresult="face"],
+    video.hb-blur[data--h-bresult="face"] {
+        filter: blur(${_settings.getBlurAmount()}px) ${
             _settings.isGray() ? "grayscale(100%)" : ""
-        }; }
-		100% { filter: blur(0px) ${_settings.isGray() ? "grayscale(0%)" : ""}; }
-	}
+        } drop-shadow(0 0 0 rgba(255,165,0,0.95)) !important;
+    }
   `;
 };
 const applyBlurryStart = (node) => {
-    if (_settings?.isBlurryStartMode()) {
+    // Always apply blur on start for safety - images should be blurred until confirmed safe
+    if (_settings?.shouldDetect()) {
         node.classList.add("hb-blur-temp");
+        // concise debug log
+        console.log(
+            `[HB] TEMP src=${node?.src?.slice(0, 80)} t=${performance.now().toFixed(0)}`
+        );
     }
 };
 

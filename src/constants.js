@@ -1,6 +1,6 @@
 export const DEFAULT_SETTINGS = {
     status: true,
-    blurryStartMode: false,
+    blurryStartMode: true,
     blurAmount: 20,
     blurImages: true,
     blurVideos: true,
