@@ -88,6 +88,11 @@ const setStyle = ({ detail: settings }) => {
             _settings.isGray() ? "grayscale(100%)" : ""
         } drop-shadow(0 0 0 rgba(255,165,0,0.95)) !important;
     }
+
+    /* Face mask layer */
+    .hb-layer { position: relative; display: inline-block; }
+    .hb-layer > .hb-blur-bg { display:block; filter: blur(${_settings.getBlurAmount()}px) ${_settings.isGray() ? "grayscale(100%)" : ""} !important; }
+    .hb-layer > .hb-face-window { position:absolute; top:0; left:0; width:100%; height:100%; clip-path: inset(var(--hb-y) calc(100% - var(--hb-x2)) calc(100% - var(--hb-y2)) var(--hb-x)); }
   `;
 };
 const applyBlurryStart = (node) => {

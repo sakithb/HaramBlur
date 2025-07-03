@@ -239,6 +239,64 @@ const cancelIdleCB =
         clearTimeout(id);
     };
 
+const applyFaceMask = (imgEl, box) => {
+    if (!imgEl || !box) return;
+    if (imgEl.dataset.hbMasked) {
+        updateFaceMask(imgEl, box);
+        return;
+    }
+    const [x, y, w, h] = box;
+    const wrapper = document.createElement("div");
+    wrapper.className = "hb-layer";
+
+    // move img into wrapper
+    const parent = imgEl.parentNode;
+    parent && parent.insertBefore(wrapper, imgEl);
+
+    // blurred background uses original img element
+    imgEl.classList.add("hb-blur-bg");
+    wrapper.appendChild(imgEl);
+
+    // create unblurred clone
+    const clone = imgEl.cloneNode(true);
+    clone.classList.remove("hb-blur-bg", "hb-blur", "hb-blur-temp");
+    clone.classList.add("hb-face-window");
+    wrapper.appendChild(clone);
+
+    // set css variables
+    updateFaceMaskVars(wrapper, x, y, w, h);
+
+    imgEl.dataset.hbMasked = 1;
+    wrapper.dataset.hbWrapper = 1;
+};
+
+const updateFaceMaskVars = (wrapper, x, y, w, h) => {
+    wrapper.style.setProperty("--hb-x", `${x}px`);
+    wrapper.style.setProperty("--hb-y", `${y}px`);
+    wrapper.style.setProperty("--hb-x2", `${x + w}px`);
+    wrapper.style.setProperty("--hb-y2", `${y + h}px`);
+};
+
+const updateFaceMask = (imgEl, box) => {
+    if (!imgEl.dataset.hbMasked) return;
+    const wrapper = imgEl.parentNode;
+    if (!wrapper) return;
+    const [x, y, w, h] = box;
+    updateFaceMaskVars(wrapper, x, y, w, h);
+};
+
+const removeFaceMask = (imgEl) => {
+    if (!imgEl?.dataset.hbMasked) return;
+    const wrapper = imgEl.parentNode;
+    if (wrapper?.dataset?.hbWrapper) {
+        const parent = wrapper.parentNode;
+        parent && parent.insertBefore(imgEl, wrapper);
+        wrapper.remove();
+    }
+    imgEl.classList.remove("hb-blur-bg");
+    delete imgEl.dataset.hbMasked;
+};
+
 export {
     loadImage,
     loadVideo,
@@ -258,4 +316,7 @@ export {
     requestIdleCB,
     cancelIdleCB,
     canvToBlob,
+    applyFaceMask,
+    updateFaceMask,
+    removeFaceMask,
 };

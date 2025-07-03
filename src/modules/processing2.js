@@ -5,6 +5,9 @@ import {
     emitEvent,
     requestIdleCB,
     canvToBlob,
+    applyFaceMask,
+    removeFaceMask,
+    updateFaceMask,
 } from "./helpers";
 import { removeBlurryStart } from "./style";
 import { STATUSES } from "../constants.js";
@@ -83,11 +86,32 @@ const processImage = (node, STATUSES, opts = {}) => {
                         clearTimeout(node.HBunblurTimeout);
                         node.HBunblurTimeout = null;
                     }
-                    debugLog("UNSAFE", node);
-                    debugLog("Marked UNSAFE, adding hb-blur", node.src);
-                    node.classList.add("hb-blur");
-                    node.dataset.HBresult = result;
-                    removeBlurryStart(node);
+
+                    if (result === "face" && faces && faces.length) {
+                        // Partial blur: keep face clear
+                        let faceBox = faces[0]?.box || [0, 0, 0, 0];
+                        const WORKER_SIZE = 224;
+                        const scaleX =
+                            (node.clientWidth || node.width) / WORKER_SIZE;
+                        const scaleY =
+                            (node.clientHeight || node.height) / WORKER_SIZE;
+                        faceBox = [
+                            faceBox[0] * scaleX,
+                            faceBox[1] * scaleY,
+                            faceBox[2] * scaleX,
+                            faceBox[3] * scaleY,
+                        ];
+                        applyFaceMask(node, faceBox);
+                        node.dataset.HBresult = result;
+                        removeBlurryStart(node);
+                    } else {
+                        // Full blur for NSFW
+                        removeFaceMask(node);
+                        debugLog("UNSAFE", node);
+                        node.classList.add("hb-blur");
+                        node.dataset.HBresult = result;
+                        removeBlurryStart(node);
+                    }
                 } else {
                     // safe result for current src
                     if (
@@ -96,6 +120,7 @@ const processImage = (node, STATUSES, opts = {}) => {
                         node.dataset.HBresult !== "face"
                     ) {
                         node.classList.remove("hb-blur");
+                        removeFaceMask(node);
                         delete node.dataset.HBresult;
                         removeBlurryStart(node);
                         debugLog("UNBLUR", node);
